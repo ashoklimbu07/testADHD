@@ -1,12 +1,32 @@
 import { useState, useEffect, useRef } from 'react';
 import './App.css';
 
-// ── Check browser support ──────────────────────────────────────────────────
+// ── Web Speech API setup ───────────────────────────────────────────────────
+// Grabbed once at module level — outside React, so StrictMode double-mount
+// cannot create two instances.
 const SpeechRecognition =
   window.SpeechRecognition || window.webkitSpeechRecognition;
 const supported = Boolean(SpeechRecognition);
 
-// ── Mic pulse animation component ─────────────────────────────────────────
+// The single recognition instance for the entire app lifetime
+let recognition = null;
+
+function getRecognition(lang) {
+  if (recognition) {
+    try { recognition.abort(); } catch { /* ignore */ }
+    recognition.onresult = null;
+    recognition.onerror  = null;
+    recognition.onend    = null;
+  }
+  if (!supported) return null;
+  recognition = new SpeechRecognition();
+  recognition.continuous     = true;
+  recognition.interimResults = true;
+  recognition.lang           = lang;
+  return recognition;
+}
+
+// ── Mic button ─────────────────────────────────────────────────────────────
 function MicButton({ isListening, onClick, disabled }) {
   return (
     <button
@@ -24,7 +44,7 @@ function MicButton({ isListening, onClick, disabled }) {
   );
 }
 
-// ── Language selector ──────────────────────────────────────────────────────
+// ── Languages ──────────────────────────────────────────────────────────────
 const LANGUAGES = [
   { code: 'en-US', label: 'English (US)' },
   { code: 'en-GB', label: 'English (UK)' },
@@ -38,53 +58,33 @@ const LANGUAGES = [
   { code: 'ja-JP', label: '日本語' },
 ];
 
-// ── Main App ───────────────────────────────────────────────────────────────
+// ── App ────────────────────────────────────────────────────────────────────
 export default function App() {
   const [transcript, setTranscript] = useState('');
-  const [interim, setInterim] = useState('');
+  const [interim,    setInterim]    = useState('');
   const [isListening, setIsListening] = useState(false);
-  const [lang, setLang] = useState('en-US');
-  const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
-  const [history, setHistory] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('vscribe-history') || '[]');
-    } catch {
-      return [];
-    }
-  });
+  const [lang,       setLang]       = useState('en-US');
+  const [error,      setError]      = useState('');
+  const [copied,     setCopied]     = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('vscribe-history') || '[]'); }
+    catch { return []; }
+  });
 
-  // Single recognition instance, recreated only when lang changes
-  const recRef = useRef(null);
-  // Ref flag: are we intentionally listening (used inside onend closure)
+  // listeningRef drives the auto-restart logic inside onend without
+  // stale closure issues — it's a ref, not state.
   const listeningRef = useRef(false);
 
-  // ── Build / rebuild the recognition instance ───────────────────────────
+  // ── Wire up recognition handlers whenever lang changes ─────────────────
   useEffect(() => {
-    if (!supported) return;
+    const rec = getRecognition(lang);
+    if (!rec) return;
 
-    // Tear down any existing instance first
-    if (recRef.current) {
-      recRef.current.onresult = null;
-      recRef.current.onerror = null;
-      recRef.current.onend = null;
-      try { recRef.current.abort(); } catch { /* ignore */ }
-      recRef.current = null;
-    }
-
-    const rec = new SpeechRecognition();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = lang;
-
-    // ── onresult: called whenever speech is detected ───────────────────
-    // e.resultIndex tells us which results are NEW this event.
-    // We only accumulate truly final results; interim is shown separately.
     rec.onresult = (e) => {
-      let finalChunk = '';
+      let finalChunk  = '';
       let interimChunk = '';
-
+      // e.resultIndex = first NEW result this event — iterate only new ones
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
         if (r.isFinal) {
@@ -93,21 +93,19 @@ export default function App() {
           interimChunk += r[0].transcript;
         }
       }
-
       if (finalChunk) {
-        // Append only — functional update avoids stale closure
         setTranscript((prev) => prev + finalChunk + ' ');
       }
       setInterim(interimChunk);
     };
 
-    // ── onerror: surface useful messages, ignore benign ones ──────────
     rec.onerror = (e) => {
-      if (e.error === 'aborted') return; // we triggered this ourselves
+      // 'aborted' fires when we call rec.abort() ourselves — not an error
+      if (e.error === 'aborted') return;
       const msgs = {
         'not-allowed': 'Microphone access denied. Please allow mic permission.',
-        'no-speech': 'No speech detected. Try again.',
-        network: 'Network error. Check your connection.',
+        'no-speech':   'No speech detected. Try again.',
+        network:       'Network error. Check your connection.',
       };
       setError(msgs[e.error] ?? `Speech error: ${e.error}`);
       listeningRef.current = false;
@@ -115,49 +113,41 @@ export default function App() {
       setInterim('');
     };
 
-    // ── onend: auto-restart only if we're still supposed to be listening
-    // This handles the browser ending the session after a pause.
+    // onend fires when the browser stops the session (e.g. after silence).
+    // If we still want to listen, restart automatically.
     rec.onend = () => {
       setInterim('');
       if (listeningRef.current) {
-        // Small delay avoids a rapid restart loop on some browsers
         setTimeout(() => {
-          if (listeningRef.current && recRef.current) {
-            try { recRef.current.start(); } catch { /* already started */ }
+          if (listeningRef.current && recognition) {
+            try { recognition.start(); } catch { /* already running */ }
           }
-        }, 150);
+        }, 100);
       } else {
         setIsListening(false);
       }
     };
 
-    recRef.current = rec;
-
-    // Cleanup when lang changes or component unmounts
+    // Cleanup: nuke handlers so a stale rec can't fire into this component
     return () => {
-      listeningRef.current = false;
       rec.onresult = null;
-      rec.onerror = null;
-      rec.onend = null;
-      try { rec.abort(); } catch { /* ignore */ }
-      recRef.current = null;
+      rec.onerror  = null;
+      rec.onend    = null;
     };
-  }, [lang]); // ← only recreate when language changes
+  }, [lang]);
 
-  // ── Toggle listening ─────────────────────────────────────────────────────
+  // ── Toggle mic ─────────────────────────────────────────────────────────
   const toggleListening = () => {
     setError('');
     if (listeningRef.current) {
-      // Stop
       listeningRef.current = false;
-      try { recRef.current?.stop(); } catch { /* ignore */ }
+      try { recognition?.stop(); } catch { /* ignore */ }
       setIsListening(false);
     } else {
-      // Start
-      if (!recRef.current) return;
+      if (!recognition) return;
       listeningRef.current = true;
       try {
-        recRef.current.start();
+        recognition.start();
         setIsListening(true);
       } catch {
         listeningRef.current = false;
@@ -166,7 +156,15 @@ export default function App() {
     }
   };
 
-  // ── Save to history ──────────────────────────────────────────────────────
+  // Stop on unmount
+  useEffect(() => {
+    return () => {
+      listeningRef.current = false;
+      try { recognition?.stop(); } catch { /* ignore */ }
+    };
+  }, []);
+
+  // ── Actions ────────────────────────────────────────────────────────────
   const saveToHistory = () => {
     const text = transcript.trim();
     if (!text) return;
@@ -176,7 +174,6 @@ export default function App() {
     localStorage.setItem('vscribe-history', JSON.stringify(next));
   };
 
-  // ── Copy to clipboard ────────────────────────────────────────────────────
   const copyText = async () => {
     const text = transcript.trim();
     if (!text) return;
@@ -189,7 +186,6 @@ export default function App() {
     }
   };
 
-  // ── Clear transcript ─────────────────────────────────────────────────────
   const clearTranscript = () => {
     setTranscript('');
     setInterim('');
@@ -199,7 +195,7 @@ export default function App() {
   const wordCount = transcript.trim() ? transcript.trim().split(/\s+/).length : 0;
   const charCount = transcript.length;
 
-  // ── Render ───────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────
   return (
     <div className="app">
       {/* Header */}
@@ -237,7 +233,9 @@ export default function App() {
                   setTranscript(item.text);
                   setShowHistory(false);
                 }}>
-                  <p className="history-text">{item.text.slice(0, 80)}{item.text.length > 80 ? '…' : ''}</p>
+                  <p className="history-text">
+                    {item.text.slice(0, 80)}{item.text.length > 80 ? '…' : ''}
+                  </p>
                   <span className="history-date">{item.date}</span>
                 </li>
               ))}
@@ -247,7 +245,7 @@ export default function App() {
       )}
 
       <main className="main">
-        {/* Language selector */}
+        {/* Language */}
         <div className="lang-row">
           <label htmlFor="lang-select" className="lang-label">Language</label>
           <select
@@ -262,42 +260,35 @@ export default function App() {
           </select>
         </div>
 
-        {/* Not supported warning */}
         {!supported && (
           <div className="banner error">
-            ⚠️ Web Speech API is not supported in this browser. Try Chrome or Edge on Android/desktop.
+            ⚠️ Web Speech API is not supported in this browser. Try Chrome or Edge.
           </div>
         )}
 
-        {/* Error message */}
         {error && (
-          <div className="banner error" role="alert">
-            ⚠️ {error}
-          </div>
+          <div className="banner error" role="alert">⚠️ {error}</div>
         )}
 
-        {/* Status indicator */}
+        {/* Status */}
         <div className={`status-bar ${isListening ? 'active' : ''}`}>
           <span className={`status-dot ${isListening ? 'active' : ''}`} />
           <span>{isListening ? 'Listening…' : 'Tap the mic to start'}</span>
         </div>
 
-        {/* Transcript box */}
+        {/* Transcript */}
         <div className="transcript-wrapper">
           <textarea
             className="transcript-area"
-            value={transcript + (interim ? interim : '')}
+            value={transcript + interim}
             onChange={(e) => {
-              // Allow manual editing — strip interim portion
               setTranscript(e.target.value);
               setInterim('');
             }}
             placeholder="Your transcription will appear here…"
             aria-label="Transcription text"
           />
-          {interim && (
-            <div className="interim-badge">interim</div>
-          )}
+          {interim && <div className="interim-badge">interim</div>}
         </div>
 
         {/* Stats */}
@@ -307,7 +298,7 @@ export default function App() {
           <span>{charCount} chars</span>
         </div>
 
-        {/* Mic button */}
+        {/* Mic */}
         <div className="mic-row">
           <MicButton
             isListening={isListening}
@@ -316,13 +307,12 @@ export default function App() {
           />
         </div>
 
-        {/* Action buttons */}
+        {/* Actions */}
         <div className="action-row">
           <button
             className="action-btn secondary"
             onClick={clearTranscript}
             disabled={!transcript && !interim}
-            title="Clear"
           >
             🗑️ Clear
           </button>
@@ -330,7 +320,6 @@ export default function App() {
             className="action-btn secondary"
             onClick={copyText}
             disabled={!transcript.trim()}
-            title="Copy"
           >
             {copied ? '✅ Copied!' : '📋 Copy'}
           </button>
@@ -338,7 +327,6 @@ export default function App() {
             className="action-btn primary"
             onClick={saveToHistory}
             disabled={!transcript.trim()}
-            title="Save"
           >
             💾 Save
           </button>
