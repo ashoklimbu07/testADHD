@@ -107,9 +107,20 @@ export default function App() {
     // ── onerror ─────────────────────────────────────────────────────────
     rec.onerror = (e) => {
       if (e.error === 'aborted' || e.error === 'no-speech') return;
+      if (e.error === 'network') {
+        // Web Speech API requires Google's servers — won't work in Brave,
+        // on restricted networks, or offline. onend will fire after this
+        // and the auto-restart in onend will retry automatically.
+        setError(
+          'Network error: Web Speech API requires internet access and a Chromium-based browser (Chrome or Edge). Brave is not supported.'
+        );
+        return; // let onend handle the retry / stop logic
+      }
       const msgs = {
-        'not-allowed': 'Microphone access denied. Please allow mic permission.',
-        network:       'Network error. Check your connection.',
+        'not-allowed':    'Microphone access denied. Please allow mic permission.',
+        'service-not-allowed': 'Speech service not allowed. Use Chrome or Edge.',
+        'bad-grammar':    'Grammar error in speech config.',
+        'language-not-supported': 'Selected language is not supported.',
       };
       setError(msgs[e.error] ?? `Speech error: ${e.error}`);
       listeningRef.current = false;
@@ -121,17 +132,26 @@ export default function App() {
     // Browser ends the session after silence. If still supposed to listen,
     // save current final text and start a fresh session so e.results
     // starts from 0 again — no risk of replaying old results.
+    let networkRetries = 0;
     rec.onend = () => {
       setInterim('');
       if (listeningRef.current) {
-        // Snapshot whatever is in transcript state into the ref
-        // so the next session starts fresh but keeps the text
+        // If we've had repeated network failures, stop trying
+        if (networkRetries >= 2) {
+          listeningRef.current = false;
+          setIsListening(false);
+          setError(
+            'Could not connect to speech service. Please use Chrome or Edge on a stable connection.'
+          );
+          return;
+        }
         setTranscript((current) => {
           finalTextRef.current = current;
           return current;
         });
         setTimeout(() => {
           if (listeningRef.current) {
+            networkRetries++;
             startSession(langRef.current);
           }
         }, 100);
