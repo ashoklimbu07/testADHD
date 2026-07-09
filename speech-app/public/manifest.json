@@ -4,8 +4,9 @@
   "description": "Voice to text transcription using Web Speech API",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f0f1a",
-  "theme_color": "#6C63FF",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "background_color": "#faf7f2",
+  "theme_color": "#ffffff",
   "orientation": "portrait",
   "icons": [
     {
