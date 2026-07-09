@@ -82,9 +82,9 @@ export default function App() {
     if (!rec) return;
 
     rec.onresult = (e) => {
-      let finalChunk  = '';
+      let finalChunk   = '';
       let interimChunk = '';
-      // e.resultIndex = first NEW result this event — iterate only new ones
+
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
         if (r.isFinal) {
@@ -93,10 +93,13 @@ export default function App() {
           interimChunk += r[0].transcript;
         }
       }
+
       if (finalChunk) {
         setTranscript((prev) => prev + finalChunk + ' ');
+        setInterim(''); // clear interim immediately so the final word isn't shown twice
+      } else {
+        setInterim(interimChunk);
       }
-      setInterim(interimChunk);
     };
 
     rec.onerror = (e) => {
