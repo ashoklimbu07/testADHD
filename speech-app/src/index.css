@@ -1,57 +1,72 @@
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@import "tailwindcss";
+
+@theme {
+  /* ── ADHD-friendly light palette ───────────────────────────────────────
+     Warm whites + saturated accents. High contrast text. Soft surfaces.
+     No pure white (#fff) — warm off-white reduces eye strain.
+  ────────────────────────────────────────────────────────────────────── */
+  --color-bg:        #faf7f2;   /* warm cream */
+  --color-surface:   #ffffff;
+  --color-surface2:  #f3ede6;   /* warm sand */
+  --color-surface3:  #ebe4db;
+
+  --color-purple:      #7c3aed;   /* vivid violet — focus anchor */
+  --color-purple-light:#ede9fe;
+  --color-purple-mid:  #a78bfa;
+
+  --color-teal:        #0d9488;   /* deep teal — action color */
+  --color-teal-light:  #ccfbf1;
+
+  --color-orange:      #ea580c;   /* warm orange — energy */
+  --color-orange-light:#ffedd5;
+
+  --color-red:         #e11d48;
+  --color-red-light:   #ffe4e6;
+
+  --color-green:       #059669;
+  --color-green-light: #d1fae5;
+
+  --color-yellow:      #d97706;
+  --color-yellow-light:#fef3c7;
+
+  --color-text:        #1c1917;   /* near-black warm */
+  --color-text2:       #44403c;
+  --color-muted:       #78716c;
+  --color-border:      #e7e0d8;
 }
 
-:root {
-  --purple: #6C63FF;
-  --purple-dark: #5348d4;
-  --purple-light: #a09af5;
-  --bg: #0f0f1a;
-  --surface: #1a1a2e;
-  --surface2: #22223a;
-  --text: #e8e8ff;
-  --text-muted: #8888aa;
-  --danger: #ff4f6a;
-  --success: #4fffb0;
-  --radius: 16px;
-}
+*, *::before, *::after { box-sizing: border-box; }
 
 html, body, #root {
   height: 100%;
   width: 100%;
+  overflow: hidden;
 }
 
 body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: var(--bg);
-  color: var(--text);
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
 }
 
-button {
-  cursor: pointer;
-  border: none;
-  outline: none;
-  font-family: inherit;
+/* Pulse rings for mic button */
+@keyframes ring-out {
+  0%   { transform: scale(1);  opacity: 0.6; }
+  100% { transform: scale(2.2); opacity: 0; }
 }
+.pulse-ring       { animation: ring-out 1.7s ease-out infinite; }
+.pulse-ring-delay { animation: ring-out 1.7s ease-out 0.7s infinite; }
 
-textarea {
-  font-family: inherit;
-  resize: none;
-  outline: none;
-  border: none;
+/* Listening dot */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.2; }
 }
+.blink { animation: blink 1.3s ease-in-out infinite; }
 
-::-webkit-scrollbar {
-  width: 4px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--surface2);
-  border-radius: 4px;
-}
+/* Subtle scrollbar */
+::-webkit-scrollbar       { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d6cfc8; border-radius: 4px; }
