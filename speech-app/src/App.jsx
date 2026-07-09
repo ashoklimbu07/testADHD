@@ -1,30 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import './App.css';
 
-// ── Web Speech API setup ───────────────────────────────────────────────────
-// Grabbed once at module level — outside React, so StrictMode double-mount
-// cannot create two instances.
+// ── Web Speech API ─────────────────────────────────────────────────────────
 const SpeechRecognition =
   window.SpeechRecognition || window.webkitSpeechRecognition;
 const supported = Boolean(SpeechRecognition);
 
-// The single recognition instance for the entire app lifetime
-let recognition = null;
-
-function getRecognition(lang) {
-  if (recognition) {
-    try { recognition.abort(); } catch { /* ignore */ }
-    recognition.onresult = null;
-    recognition.onerror  = null;
-    recognition.onend    = null;
-  }
-  if (!supported) return null;
-  recognition = new SpeechRecognition();
-  recognition.continuous     = true;
-  recognition.interimResults = true;
-  recognition.lang           = lang;
-  return recognition;
-}
+// Module-level singleton — immune to React StrictMode double-mount
+let recInstance = null;
 
 // ── Mic button ─────────────────────────────────────────────────────────────
 function MicButton({ isListening, onClick, disabled }) {
@@ -60,54 +43,72 @@ const LANGUAGES = [
 
 // ── App ────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [transcript, setTranscript] = useState('');
-  const [interim,    setInterim]    = useState('');
-  const [isListening, setIsListening] = useState(false);
-  const [lang,       setLang]       = useState('en-US');
-  const [error,      setError]      = useState('');
-  const [copied,     setCopied]     = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
+  const [transcript,   setTranscript]   = useState('');
+  const [interim,      setInterim]      = useState('');
+  const [isListening,  setIsListening]  = useState(false);
+  const [lang,         setLang]         = useState('en-US');
+  const [error,        setError]        = useState('');
+  const [copied,       setCopied]       = useState(false);
+  const [showHistory,  setShowHistory]  = useState(false);
   const [history, setHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem('vscribe-history') || '[]'); }
     catch { return []; }
   });
 
-  // listeningRef drives the auto-restart logic inside onend without
-  // stale closure issues — it's a ref, not state.
-  const listeningRef = useRef(false);
+  // Use refs so handlers always see latest values without stale closures
+  const listeningRef   = useRef(false);
+  // finalTextRef accumulates only confirmed-final text across sessions
+  const finalTextRef   = useRef('');
 
-  // ── Wire up recognition handlers whenever lang changes ─────────────────
-  useEffect(() => {
-    const rec = getRecognition(lang);
-    if (!rec) return;
+  // ── Start a fresh recognition session ─────────────────────────────────
+  const startSession = (currentLang) => {
+    // Destroy any existing instance cleanly
+    if (recInstance) {
+      recInstance.onresult = null;
+      recInstance.onerror  = null;
+      recInstance.onend    = null;
+      try { recInstance.abort(); } catch { /* ignore */ }
+      recInstance = null;
+    }
 
+    if (!supported) return;
+
+    const rec = new SpeechRecognition();
+    rec.continuous     = true;
+    rec.interimResults = true;
+    rec.lang           = currentLang;
+
+    // ── onresult ────────────────────────────────────────────────────────
+    // KEY APPROACH: rebuild full text from e.results on every event.
+    // e.results is the authoritative list — no manual accumulation.
+    // Final segments go into finalTextRef; the last non-final segment
+    // is shown as interim. This is duplicate-proof.
     rec.onresult = (e) => {
-      let finalChunk   = '';
-      let interimChunk = '';
+      let finalParts  = '';
+      let interimPart = '';
 
-      for (let i = e.resultIndex; i < e.results.length; i++) {
+      for (let i = 0; i < e.results.length; i++) {
         const r = e.results[i];
         if (r.isFinal) {
-          finalChunk += r[0].transcript;
+          finalParts += r[0].transcript + ' ';
         } else {
-          interimChunk += r[0].transcript;
+          // Only the last non-final result is shown as interim
+          interimPart = r[0].transcript;
         }
       }
 
-      if (finalChunk) {
-        setTranscript((prev) => prev + finalChunk + ' ');
-        setInterim(''); // clear interim immediately so the final word isn't shown twice
-      } else {
-        setInterim(interimChunk);
-      }
+      // finalParts now contains everything confirmed in THIS session.
+      // Combine with text saved from previous sessions.
+      const combined = finalTextRef.current + finalParts;
+      setTranscript(combined);
+      setInterim(interimPart);
     };
 
+    // ── onerror ─────────────────────────────────────────────────────────
     rec.onerror = (e) => {
-      // 'aborted' fires when we call rec.abort() ourselves — not an error
-      if (e.error === 'aborted') return;
+      if (e.error === 'aborted' || e.error === 'no-speech') return;
       const msgs = {
         'not-allowed': 'Microphone access denied. Please allow mic permission.',
-        'no-speech':   'No speech detected. Try again.',
         network:       'Network error. Check your connection.',
       };
       setError(msgs[e.error] ?? `Speech error: ${e.error}`);
@@ -116,14 +117,22 @@ export default function App() {
       setInterim('');
     };
 
-    // onend fires when the browser stops the session (e.g. after silence).
-    // If we still want to listen, restart automatically.
+    // ── onend ────────────────────────────────────────────────────────────
+    // Browser ends the session after silence. If still supposed to listen,
+    // save current final text and start a fresh session so e.results
+    // starts from 0 again — no risk of replaying old results.
     rec.onend = () => {
       setInterim('');
       if (listeningRef.current) {
+        // Snapshot whatever is in transcript state into the ref
+        // so the next session starts fresh but keeps the text
+        setTranscript((current) => {
+          finalTextRef.current = current;
+          return current;
+        });
         setTimeout(() => {
-          if (listeningRef.current && recognition) {
-            try { recognition.start(); } catch { /* already running */ }
+          if (listeningRef.current) {
+            startSession(langRef.current);
           }
         }, 100);
       } else {
@@ -131,39 +140,61 @@ export default function App() {
       }
     };
 
-    // Cleanup: nuke handlers so a stale rec can't fire into this component
-    return () => {
-      rec.onresult = null;
-      rec.onerror  = null;
-      rec.onend    = null;
-    };
-  }, [lang]);
+    recInstance = rec;
+    try {
+      rec.start();
+    } catch {
+      setError('Could not start microphone.');
+      listeningRef.current = false;
+      setIsListening(false);
+    }
+  };
+
+  // Keep a ref to lang so onend closure always has the current value
+  const langRef = useRef(lang);
+  useEffect(() => { langRef.current = lang; }, [lang]);
 
   // ── Toggle mic ─────────────────────────────────────────────────────────
   const toggleListening = () => {
     setError('');
     if (listeningRef.current) {
+      // Stop
       listeningRef.current = false;
-      try { recognition?.stop(); } catch { /* ignore */ }
+      try { recInstance?.stop(); } catch { /* ignore */ }
       setIsListening(false);
     } else {
-      if (!recognition) return;
+      // Reset session accumulator
+      finalTextRef.current = '';
+      setTranscript('');
+      setInterim('');
       listeningRef.current = true;
-      try {
-        recognition.start();
-        setIsListening(true);
-      } catch {
-        listeningRef.current = false;
-        setError('Could not start microphone.');
-      }
+      setIsListening(true);
+      startSession(lang);
     }
   };
 
-  // Stop on unmount
+  // Stop if language changes while listening
+  useEffect(() => {
+    if (listeningRef.current) {
+      listeningRef.current = false;
+      try { recInstance?.stop(); } catch { /* ignore */ }
+      setIsListening(false);
+      setInterim('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang]);
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       listeningRef.current = false;
-      try { recognition?.stop(); } catch { /* ignore */ }
+      if (recInstance) {
+        recInstance.onresult = null;
+        recInstance.onerror  = null;
+        recInstance.onend    = null;
+        try { recInstance.abort(); } catch { /* ignore */ }
+        recInstance = null;
+      }
     };
   }, []);
 
@@ -172,7 +203,7 @@ export default function App() {
     const text = transcript.trim();
     if (!text) return;
     const entry = { id: Date.now(), text, date: new Date().toLocaleString(), lang };
-    const next = [entry, ...history].slice(0, 20);
+    const next  = [entry, ...history].slice(0, 20);
     setHistory(next);
     localStorage.setItem('vscribe-history', JSON.stringify(next));
   };
@@ -190,6 +221,7 @@ export default function App() {
   };
 
   const clearTranscript = () => {
+    finalTextRef.current = '';
     setTranscript('');
     setInterim('');
     setError('');
@@ -285,6 +317,7 @@ export default function App() {
             className="transcript-area"
             value={transcript + interim}
             onChange={(e) => {
+              finalTextRef.current = e.target.value;
               setTranscript(e.target.value);
               setInterim('');
             }}
