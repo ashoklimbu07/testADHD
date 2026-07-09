@@ -6,6 +6,9 @@ const SpeechRecognition =
   window.SpeechRecognition || window.webkitSpeechRecognition;
 const supported = Boolean(SpeechRecognition);
 
+// Detect mobile — Chrome Android behaves differently with continuous mode
+const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
 // Module-level singleton — immune to React StrictMode double-mount
 let recInstance = null;
 
@@ -43,26 +46,29 @@ const LANGUAGES = [
 
 // ── App ────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [transcript,   setTranscript]   = useState('');
-  const [interim,      setInterim]      = useState('');
-  const [isListening,  setIsListening]  = useState(false);
-  const [lang,         setLang]         = useState('en-US');
-  const [error,        setError]        = useState('');
-  const [copied,       setCopied]       = useState(false);
-  const [showHistory,  setShowHistory]  = useState(false);
+  const [transcript,  setTranscript]  = useState('');
+  const [interim,     setInterim]     = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [lang,        setLang]        = useState('en-US');
+  const [error,       setError]       = useState('');
+  const [copied,      setCopied]      = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem('vscribe-history') || '[]'); }
     catch { return []; }
   });
 
-  // Use refs so handlers always see latest values without stale closures
-  const listeningRef   = useRef(false);
-  // finalTextRef accumulates only confirmed-final text across sessions
-  const finalTextRef   = useRef('');
+  // listeningRef — controls whether we should keep restarting
+  const listeningRef  = useRef(false);
+  // finalTextRef — accumulated confirmed text across all sessions
+  const finalTextRef  = useRef('');
+  // langRef — always current lang inside async callbacks
+  const langRef       = useRef(lang);
+  useEffect(() => { langRef.current = lang; }, [lang]);
 
-  // ── Start a fresh recognition session ─────────────────────────────────
-  const startSession = (currentLang) => {
-    // Destroy any existing instance cleanly
+  // ── Create and start one recognition session ───────────────────────────
+  const startSession = () => {
+    // Clean up previous instance
     if (recInstance) {
       recInstance.onresult = null;
       recInstance.onerror  = null;
@@ -71,56 +77,69 @@ export default function App() {
       recInstance = null;
     }
 
-    if (!supported) return;
+    if (!supported || !listeningRef.current) return;
 
     const rec = new SpeechRecognition();
-    rec.continuous     = true;
+    rec.lang = langRef.current;
     rec.interimResults = true;
-    rec.lang           = currentLang;
 
-    // ── onresult ────────────────────────────────────────────────────────
-    // KEY APPROACH: rebuild full text from e.results on every event.
-    // e.results is the authoritative list — no manual accumulation.
-    // Final segments go into finalTextRef; the last non-final segment
-    // is shown as interim. This is duplicate-proof.
+    // ── KEY DIFFERENCE ────────────────────────────────────────────────
+    // On mobile: continuous = false
+    //   Each session produces exactly ONE final result then ends.
+    //   onend restarts a fresh session → e.results always starts clean.
+    //   No replayed results, no duplication.
+    //
+    // On desktop: continuous = true
+    //   Works fine on desktop Chrome, gives a smoother experience.
+    rec.continuous = !isMobile;
+
+    // ── onresult ───────────────────────────────────────────────────────
     rec.onresult = (e) => {
-      let finalParts  = '';
-      let interimPart = '';
-
-      for (let i = 0; i < e.results.length; i++) {
-        const r = e.results[i];
-        if (r.isFinal) {
-          finalParts += r[0].transcript + ' ';
+      if (isMobile) {
+        // Mobile: non-continuous mode.
+        // Only one result comes in per session. Read it directly.
+        const result = e.results[e.results.length - 1];
+        if (result.isFinal) {
+          const text = result[0].transcript;
+          finalTextRef.current = finalTextRef.current + text + ' ';
+          setTranscript(finalTextRef.current);
+          setInterim('');
         } else {
-          // Only the last non-final result is shown as interim
-          interimPart = r[0].transcript;
+          setInterim(result[0].transcript);
         }
+      } else {
+        // Desktop: continuous mode.
+        // Rebuild full text from entire e.results each time — duplicate-proof.
+        let finalParts   = '';
+        let interimPart  = '';
+        for (let i = 0; i < e.results.length; i++) {
+          const r = e.results[i];
+          if (r.isFinal) {
+            finalParts += r[0].transcript + ' ';
+          } else {
+            interimPart = r[0].transcript;
+          }
+        }
+        setTranscript(finalTextRef.current + finalParts);
+        setInterim(interimPart);
       }
-
-      // finalParts now contains everything confirmed in THIS session.
-      // Combine with text saved from previous sessions.
-      const combined = finalTextRef.current + finalParts;
-      setTranscript(combined);
-      setInterim(interimPart);
     };
 
-    // ── onerror ─────────────────────────────────────────────────────────
+    // ── onerror ────────────────────────────────────────────────────────
     rec.onerror = (e) => {
       if (e.error === 'aborted' || e.error === 'no-speech') return;
       if (e.error === 'network') {
-        // Web Speech API requires Google's servers — won't work in Brave,
-        // on restricted networks, or offline. onend will fire after this
-        // and the auto-restart in onend will retry automatically.
         setError(
-          'Network error: Web Speech API requires internet access and a Chromium-based browser (Chrome or Edge). Brave is not supported.'
+          'Network error: Web Speech API requires internet and Chrome or Edge. Brave is not supported.'
         );
-        return; // let onend handle the retry / stop logic
+        listeningRef.current = false;
+        setIsListening(false);
+        return;
       }
       const msgs = {
-        'not-allowed':    'Microphone access denied. Please allow mic permission.',
-        'service-not-allowed': 'Speech service not allowed. Use Chrome or Edge.',
-        'bad-grammar':    'Grammar error in speech config.',
-        'language-not-supported': 'Selected language is not supported.',
+        'not-allowed':           'Microphone access denied. Please allow mic permission.',
+        'service-not-allowed':   'Speech service blocked. Use Chrome or Edge.',
+        'language-not-supported':'Selected language is not supported.',
       };
       setError(msgs[e.error] ?? `Speech error: ${e.error}`);
       listeningRef.current = false;
@@ -128,35 +147,31 @@ export default function App() {
       setInterim('');
     };
 
-    // ── onend ────────────────────────────────────────────────────────────
-    // Browser ends the session after silence. If still supposed to listen,
-    // save current final text and start a fresh session so e.results
-    // starts from 0 again — no risk of replaying old results.
-    let networkRetries = 0;
+    // ── onend ──────────────────────────────────────────────────────────
     rec.onend = () => {
       setInterim('');
-      if (listeningRef.current) {
-        // If we've had repeated network failures, stop trying
-        if (networkRetries >= 2) {
-          listeningRef.current = false;
-          setIsListening(false);
-          setError(
-            'Could not connect to speech service. Please use Chrome or Edge on a stable connection.'
-          );
-          return;
-        }
+
+      if (!listeningRef.current) {
+        setIsListening(false);
+        return;
+      }
+
+      if (isMobile) {
+        // Mobile non-continuous: restart a clean session immediately.
+        // finalTextRef already has the accumulated text, so no snapshot needed.
+        setTimeout(() => {
+          if (listeningRef.current) startSession();
+        }, 80);
+      } else {
+        // Desktop continuous: session ended (e.g. after long silence).
+        // Snapshot current transcript then restart.
         setTranscript((current) => {
           finalTextRef.current = current;
           return current;
         });
         setTimeout(() => {
-          if (listeningRef.current) {
-            networkRetries++;
-            startSession(langRef.current);
-          }
+          if (listeningRef.current) startSession();
         }, 100);
-      } else {
-        setIsListening(false);
       }
     };
 
@@ -170,10 +185,6 @@ export default function App() {
     }
   };
 
-  // Keep a ref to lang so onend closure always has the current value
-  const langRef = useRef(lang);
-  useEffect(() => { langRef.current = lang; }, [lang]);
-
   // ── Toggle mic ─────────────────────────────────────────────────────────
   const toggleListening = () => {
     setError('');
@@ -183,17 +194,17 @@ export default function App() {
       try { recInstance?.stop(); } catch { /* ignore */ }
       setIsListening(false);
     } else {
-      // Reset session accumulator
+      // Start fresh
       finalTextRef.current = '';
       setTranscript('');
       setInterim('');
       listeningRef.current = true;
       setIsListening(true);
-      startSession(lang);
+      startSession();
     }
   };
 
-  // Stop if language changes while listening
+  // Stop if language changes mid-session
   useEffect(() => {
     if (listeningRef.current) {
       listeningRef.current = false;
