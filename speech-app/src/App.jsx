@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 // ── Check browser support ──────────────────────────────────────────────────
@@ -55,101 +55,116 @@ export default function App() {
   });
   const [showHistory, setShowHistory] = useState(false);
 
-  const recognitionRef = useRef(null);
-  const transcriptRef = useRef(transcript);
-  transcriptRef.current = transcript;
+  // Single recognition instance, recreated only when lang changes
+  const recRef = useRef(null);
+  // Ref flag: are we intentionally listening (used inside onend closure)
+  const listeningRef = useRef(false);
 
-  // ── Setup recognition ────────────────────────────────────────────────────
-  const setupRecognition = useCallback(() => {
-    if (!supported) return null;
+  // ── Build / rebuild the recognition instance ───────────────────────────
+  useEffect(() => {
+    if (!supported) return;
+
+    // Tear down any existing instance first
+    if (recRef.current) {
+      recRef.current.onresult = null;
+      recRef.current.onerror = null;
+      recRef.current.onend = null;
+      try { recRef.current.abort(); } catch { /* ignore */ }
+      recRef.current = null;
+    }
+
     const rec = new SpeechRecognition();
     rec.continuous = true;
     rec.interimResults = true;
     rec.lang = lang;
 
+    // ── onresult: called whenever speech is detected ───────────────────
+    // e.resultIndex tells us which results are NEW this event.
+    // We only accumulate truly final results; interim is shown separately.
     rec.onresult = (e) => {
-      let interimText = '';
-      let finalText = '';
+      let finalChunk = '';
+      let interimChunk = '';
+
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        const result = e.results[i];
-        if (result.isFinal) {
-          finalText += result[0].transcript;
+        const r = e.results[i];
+        if (r.isFinal) {
+          finalChunk += r[0].transcript;
         } else {
-          interimText += result[0].transcript;
+          interimChunk += r[0].transcript;
         }
       }
-      if (finalText) {
-        setTranscript((prev) => prev + finalText + ' ');
+
+      if (finalChunk) {
+        // Append only — functional update avoids stale closure
+        setTranscript((prev) => prev + finalChunk + ' ');
       }
-      setInterim(interimText);
+      setInterim(interimChunk);
     };
 
+    // ── onerror: surface useful messages, ignore benign ones ──────────
     rec.onerror = (e) => {
+      if (e.error === 'aborted') return; // we triggered this ourselves
       const msgs = {
         'not-allowed': 'Microphone access denied. Please allow mic permission.',
         'no-speech': 'No speech detected. Try again.',
         network: 'Network error. Check your connection.',
-        aborted: '',
       };
-      const msg = msgs[e.error] ?? `Error: ${e.error}`;
-      if (msg) setError(msg);
+      setError(msgs[e.error] ?? `Speech error: ${e.error}`);
+      listeningRef.current = false;
       setIsListening(false);
       setInterim('');
     };
 
+    // ── onend: auto-restart only if we're still supposed to be listening
+    // This handles the browser ending the session after a pause.
     rec.onend = () => {
       setInterim('');
-      // Auto-restart if still meant to be listening
-      if (recognitionRef.current?._shouldContinue) {
-        try { rec.start(); } catch { /* already started */ }
+      if (listeningRef.current) {
+        // Small delay avoids a rapid restart loop on some browsers
+        setTimeout(() => {
+          if (listeningRef.current && recRef.current) {
+            try { recRef.current.start(); } catch { /* already started */ }
+          }
+        }, 150);
       } else {
         setIsListening(false);
       }
     };
 
-    return rec;
-  }, [lang]);
+    recRef.current = rec;
+
+    // Cleanup when lang changes or component unmounts
+    return () => {
+      listeningRef.current = false;
+      rec.onresult = null;
+      rec.onerror = null;
+      rec.onend = null;
+      try { rec.abort(); } catch { /* ignore */ }
+      recRef.current = null;
+    };
+  }, [lang]); // ← only recreate when language changes
 
   // ── Toggle listening ─────────────────────────────────────────────────────
   const toggleListening = () => {
     setError('');
-    if (isListening) {
-      recognitionRef.current._shouldContinue = false;
-      recognitionRef.current?.stop();
+    if (listeningRef.current) {
+      // Stop
+      listeningRef.current = false;
+      try { recRef.current?.stop(); } catch { /* ignore */ }
       setIsListening(false);
     } else {
-      const rec = setupRecognition();
-      if (!rec) return;
-      rec._shouldContinue = true;
-      recognitionRef.current = rec;
+      // Start
+      if (!recRef.current) return;
+      listeningRef.current = true;
       try {
-        rec.start();
+        recRef.current.start();
         setIsListening(true);
-      } catch (e) {
+      } catch {
+        listeningRef.current = false;
         setError('Could not start microphone.');
       }
     }
   };
-
-  // Stop when lang changes
-  useEffect(() => {
-    if (isListening) {
-      recognitionRef.current._shouldContinue = false;
-      recognitionRef.current?.stop();
-      setIsListening(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current._shouldContinue = false;
-        recognitionRef.current.stop();
-      }
-    };
-  }, []);
 
   // ── Save to history ──────────────────────────────────────────────────────
   const saveToHistory = () => {
