@@ -17,6 +17,7 @@ import SettingsView from './components/screens/SettingsView';
 import TypeSheet from './components/sheets/TypeSheet';
 import EmojiPicker from './components/sheets/EmojiPicker';
 import EventModal from './components/sheets/EventModal';
+import StepsModal from './components/sheets/StepsModal';
 
 const KEYFRAMES = `
   @keyframes df-pulse { 0% { transform: scale(1); opacity: .55 } 100% { transform: scale(2); opacity: 0 } }
@@ -35,6 +36,7 @@ export default function App() {
   const [typeText, setTypeText] = useState('');
   const [pending, setPending] = useState(null);
   const [lastAdded, setLastAdded] = useState(null);
+  const [stepsRef, setStepsRef] = useState(null); // { date, id } of the event whose steps popup is open
 
   const schedule = useSchedule();
   const voice = useVoiceCapture({ onError: () => setHomeView('voice') });
@@ -63,9 +65,12 @@ export default function App() {
     ? buildTimelineNodes({
         sel, events: schedule.events, workStart: schedule.workStart, workEnd: schedule.workEnd, lastAdded,
         onEventTap: actions.openEventModal, onEndpointTap: () => setTab('settings'),
+        onStepsTap: (it) => setStepsRef({ date: sel, id: it.id }),
       })
     : [];
   const selEvs = (schedule.events[sel] || []).slice().sort((a, b) => toMin(a.start) - toMin(b.start));
+  const stepsEvent = stepsRef ? (schedule.events[stepsRef.date] || []).find((e) => e.id === stepsRef.id) : null;
+  const stepsPayload = stepsEvent ? { title: stepsEvent.title, subs: stepsEvent.subs } : null;
 
   return (
     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', height: '100dvh', maxWidth: 480, margin: '0 auto', background: '#FFFFFF', overflow: 'hidden', fontFamily: 'inherit' }}>
@@ -100,6 +105,7 @@ export default function App() {
       <TypeSheet open={typeSheetOpen} typeText={typeText} setTypeText={setTypeText} onClose={() => setTypeSheetOpen(false)} onSubmit={actions.submitTyped} />
       <EmojiPicker open={eventModal.emojiPickerOpen} onClose={() => eventModal.setEmojiPickerOpen(false)} onPick={(em) => { eventModal.patchModal({ emoji: em }); eventModal.setEmojiPickerOpen(false); }} />
       <EventModal modal={eventModal.modal} m={eventModal.m} canSave={eventModal.canSave} patchModal={eventModal.patchModal} onClose={eventModal.closeModal} onOpenEmojiPicker={() => eventModal.setEmojiPickerOpen(true)} onSave={actions.saveModal} onDelete={actions.deleteModal} />
+      <StepsModal steps={stepsPayload} onClose={() => setStepsRef(null)} onToggle={(i) => schedule.toggleSub(stepsRef.date, stepsRef.id, i)} />
     </div>
   );
 }

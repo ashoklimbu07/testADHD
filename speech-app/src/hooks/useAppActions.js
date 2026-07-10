@@ -33,7 +33,7 @@ export function useAppActions({ tab, setTab, setHomeView, sel, setSel, setCalY, 
     eventModal.openModal({
       id: null, origDate: pending.date, title: pending.title, date: pending.date,
       start: pending.start, end: pending.end, emoji: pending.emoji,
-      subs: pending.subs.map((s) => `${s.t} (${s.d})`), fromPending: true,
+      subs: pending.subs.map((s) => ({ label: `${s.t} (${s.d})`, done: false })), fromPending: true,
     });
   };
   const discardPending = () => { setPending(null); setHomeView('voice'); };

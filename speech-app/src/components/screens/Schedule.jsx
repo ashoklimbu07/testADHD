@@ -45,7 +45,7 @@ export default function Schedule({ tab, selDate, sel, days, nodes, showBackToVoi
                 <div style={{ fontSize: 12.5, color: MUTED, fontWeight: 500 }}>{n.timeLabel}</div>
                 <div style={{ fontSize: 16.5, fontWeight: 700, color: n.titleColor, textDecoration: n.deco, marginTop: 2 }}>{n.title}</div>
                 {n.stepsLabel && (
-                  <div style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 5, background: A_BG, borderRadius: 99, padding: '3px 9px', fontSize: 11, fontWeight: 800, color: A }}>{n.stepsLabel}</div>
+                  <button onClick={(e) => { e.stopPropagation(); n.onStepsTap(); }} style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 5, background: A_BG, border: 'none', cursor: 'pointer', borderRadius: 99, padding: '3px 9px', fontSize: 11, fontWeight: 800, color: A, fontFamily: 'inherit' }}>{n.stepsLabel}</button>
                 )}
               </div>
               {n.gapLabel && (

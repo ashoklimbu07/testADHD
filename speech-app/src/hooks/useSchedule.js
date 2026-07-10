@@ -46,7 +46,7 @@ export function useSchedule() {
       ...ev,
       [pending.date]: (ev[pending.date] || []).concat([{
         id, title: pending.title, start: pending.start, end: pending.end, done: false, emoji: pending.emoji,
-        subs: pending.subs.map((s) => `${s.t} (${s.d})`),
+        subs: pending.subs.map((s) => ({ label: `${s.t} (${s.d})`, done: false })),
       }]),
     }));
     return id;
@@ -56,6 +56,16 @@ export function useSchedule() {
     setEvents((ev) => ({
       ...ev,
       [date]: (ev[date] || []).map((e) => e.id === id ? { ...e, done: !e.done } : e),
+    }));
+  };
+
+  const toggleSub = (date, id, index) => {
+    setEvents((ev) => ({
+      ...ev,
+      [date]: (ev[date] || []).map((e) => e.id !== id ? e : {
+        ...e,
+        subs: e.subs.map((s, i) => i !== index ? s : { ...s, done: !s.done }),
+      }),
     }));
   };
 
@@ -86,5 +96,5 @@ export function useSchedule() {
     setEvents((ev) => ({ ...ev, [origDate]: (ev[origDate] || []).filter((e) => e.id !== id) }));
   };
 
-  return { events, workStart, setWorkStart, workEnd, setWorkEnd, findSlot, addEvent, toggleDone, upsertEvent, deleteEvent };
+  return { events, workStart, setWorkStart, workEnd, setWorkEnd, findSlot, addEvent, toggleDone, toggleSub, upsertEvent, deleteEvent };
 }

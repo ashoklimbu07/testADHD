@@ -39,7 +39,7 @@ export function buildCalendarCells(calY, calM, sel, todayIso, events) {
   return cells;
 }
 
-export function buildTimelineNodes({ sel, events, workStart, workEnd, lastAdded, onEventTap, onEndpointTap }) {
+export function buildTimelineNodes({ sel, events, workStart, workEnd, lastAdded, onEventTap, onEndpointTap, onStepsTap }) {
   const evs = (events[sel] || []).slice().sort((a, b) => toMin(a.start) - toMin(b.start));
   const items = [{ kind: 'wake', start: workStart, end: null, title: 'Work starts', emoji: '🕘' }]
     .concat(evs.map((e) => ({ kind: 'event', ...e })))
@@ -70,6 +70,7 @@ export function buildTimelineNodes({ sel, events, workStart, workEnd, lastAdded,
       stepsLabel: (it.subs && it.subs.length) ? `${it.subs.length} steps` : false,
       gapLabel,
       onTap: () => (isEvent ? onEventTap(it) : onEndpointTap()),
+      onStepsTap: () => onStepsTap(it),
     };
   });
 }
