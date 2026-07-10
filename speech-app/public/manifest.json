@@ -1,11 +1,11 @@
 {
-  "name": "VoiceScribe",
-  "short_name": "VoiceScribe",
-  "description": "Voice to text transcription using Web Speech API",
+  "name": "DailyFlow",
+  "short_name": "DailyFlow",
+  "description": "Speak your tasks and DailyFlow schedules them into your day using the Web Speech API",
   "start_url": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
-  "background_color": "#faf7f2",
+  "background_color": "#F7F5F1",
   "theme_color": "#ffffff",
   "orientation": "portrait",
   "icons": [
