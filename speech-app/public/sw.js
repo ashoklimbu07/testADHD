@@ -1,10 +1,9 @@
-const CACHE_NAME = 'voicescribe-v1';
+const CACHE_NAME = 'ui-1-v1';
 const ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png',
+  '/icon.svg',
 ];
 
 self.addEventListener('install', (event) => {

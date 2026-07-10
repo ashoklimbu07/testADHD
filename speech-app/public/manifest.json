@@ -1,12 +1,12 @@
 {
-  "name": "DailyFlow",
-  "short_name": "DailyFlow",
-  "description": "Speak your tasks and DailyFlow schedules them into your day using the Web Speech API",
+  "name": "UI-1",
+  "short_name": "UI-1",
+  "description": "Speak your tasks and UI-1 schedules them into your day using the Web Speech API",
   "start_url": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "background_color": "#F7F5F1",
-  "theme_color": "#ffffff",
+  "theme_color": "#F2917F",
   "orientation": "portrait",
   "icons": [
     {
