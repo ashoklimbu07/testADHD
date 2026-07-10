@@ -2,7 +2,7 @@ import { AlertTriangle } from 'lucide-react';
 import { A, DARK, MUTED, BG } from '../../constants';
 import MicOrb from '../atoms/MicOrb';
 
-export default function VoiceListening({ listenPhase, liveTranscript, onStop, debugLog, micError, micReady }) {
+export default function VoiceListening({ listenPhase, liveTranscript, onStop, micError, micReady }) {
   const statusLabel = listenPhase !== 'listen' ? 'Breaking it down…' : (micReady ? 'Listening…' : 'Starting mic…');
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: BG }}>
@@ -24,11 +24,6 @@ export default function VoiceListening({ listenPhase, liveTranscript, onStop, de
           <div style={{ width: '100%', maxWidth: 320, boxSizing: 'border-box', display: 'flex', gap: 8, alignItems: 'flex-start', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 14, padding: '10px 12px', color: '#B91C1C', fontSize: 12.5, lineHeight: 1.4 }}>
             <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
             {micError}
-          </div>
-        )}
-        {debugLog?.length > 0 && (
-          <div style={{ width: '100%', maxWidth: 320, boxSizing: 'border-box', background: '#111827', borderRadius: 10, padding: '8px 10px', fontFamily: 'ui-monospace, monospace', fontSize: 10.5, color: '#a3e635', lineHeight: 1.5, maxHeight: 110, overflowY: 'auto' }}>
-            {debugLog.map((line, i) => <div key={i}>{line}</div>)}
           </div>
         )}
       </div>

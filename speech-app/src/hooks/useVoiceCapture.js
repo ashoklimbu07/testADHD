@@ -9,7 +9,6 @@ export function useVoiceCapture({ onError } = {}) {
   const [listenPhase, setListenPhase] = useState('listen'); // listen | think
   const [micError, setMicError] = useState('');
   const [micReady, setMicReady] = useState(false);
-  const [debugLog, setDebugLog] = useState([]);
 
   const listeningRef = useRef(false);
   const finalTextRef = useRef('');
@@ -17,10 +16,7 @@ export function useVoiceCapture({ onError } = {}) {
   const thinkTimerRef = useRef(null);
   const watchdogRef = useRef(null);
 
-  const log = (msg) => {
-    console.debug('[speech]', msg);
-    setDebugLog((l) => [...l.slice(-7), `${new Date().toLocaleTimeString()}  ${msg}`]);
-  };
+  const log = (msg) => console.debug('[speech]', msg);
   const clearWatchdog = () => { if (watchdogRef.current) { clearTimeout(watchdogRef.current); watchdogRef.current = null; } };
   const killRecognizer = () => {
     if (!recRef.current) return;
@@ -117,7 +113,6 @@ export function useVoiceCapture({ onError } = {}) {
   const begin = () => {
     setMicError('');
     setMicReady(false);
-    setDebugLog([]);
     finalTextRef.current = '';
     setTranscript('');
     setInterim('');
@@ -146,5 +141,5 @@ export function useVoiceCapture({ onError } = {}) {
 
   const liveTranscript = (transcript + (interim ? ' ' + interim : '')).trim();
 
-  return { liveTranscript, listenPhase, micError, micReady, speechSupported, begin, end, typeSubmit, debugLog };
+  return { liveTranscript, listenPhase, micError, micReady, speechSupported, begin, end, typeSubmit };
 }

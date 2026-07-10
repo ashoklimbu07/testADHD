@@ -73,7 +73,7 @@ export default function App() {
 
       <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
         {hvIdle && <VoiceHome todayCountLabel={todayCountLabel} micError={voice.micError} onStart={actions.startListening} onOpenTypeSheet={() => { setTypeSheetOpen(true); setTypeText(''); }} />}
-        {hvListening && <VoiceListening listenPhase={voice.listenPhase} liveTranscript={voice.liveTranscript} onStop={actions.stopListening} debugLog={voice.debugLog} micError={voice.micError} micReady={voice.micReady} />}
+        {hvListening && <VoiceListening listenPhase={voice.listenPhase} liveTranscript={voice.liveTranscript} onStop={actions.stopListening} micError={voice.micError} micReady={voice.micReady} />}
         {hvBreakdown && pending && <Breakdown pending={pending} workStart={schedule.workStart} workEnd={schedule.workEnd} onConfirm={actions.confirmPending} onAdjust={actions.adjustPending} onDiscard={actions.discardPending} />}
         {hvSchedule && <Schedule tab={tab} selDate={selDate} sel={sel} days={days} nodes={nodes} showBackToVoice={showBackToVoice} goHome={actions.goHome} setSel={setSel} toggleDone={schedule.toggleDone} />}
         {tab === 'calendar' && (
