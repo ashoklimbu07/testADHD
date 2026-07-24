@@ -14,7 +14,7 @@ Built with React, Vite, Tailwind CSS, and the Web Speech API.
 ## Folder Structure
 
 ```
-testADHD/
+WEBSPEECH_ADHD/
 ├── README.md                  # This file
 └── adhd-app/                  # React + Vite application
     ├── index.html             # App entry HTML
